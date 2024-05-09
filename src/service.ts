@@ -1,16 +1,20 @@
-import { StatusCodes } from 'http-status-codes';
-import { APIError } from './errorHandler';
-import { ChatModel } from './model';
-import axios from 'axios';
-import { google } from 'googleapis';
-import fetch from 'node-fetch';
-import { Response } from 'express';
+import { StatusCodes } from "http-status-codes";
+import { APIError } from "./errorHandler";
+import { ChatModel } from "./model";
+import axios from "axios";
+import { google } from "googleapis";
+import fetch from "node-fetch";
+import { Response } from "express";
+import {
+  kiddyChatSystemMessage,
+  kiddySearchSystemMessage,
+} from "./systemMessages";
 
 export default class KiddyService {
-  static customSearch = google.customsearch('v1');
+  static customSearch = google.customsearch("v1");
 
   static youtubeSearch = google.youtube({
-    version: 'v3',
+    version: "v3",
     auth: process.env.GOOGLE_API_KEY!,
   });
 
@@ -25,13 +29,11 @@ export default class KiddyService {
   }
 
   static async sendMessageToSearchBot(message: string) {
-    const res = await axios.post('http://localhost:11434/api/generate', {
-      model: 'kiddy-search',
-      prompt: `{
-        "kid_prompt": "${message}"
-      }`,
+    const res = await axios.post("http://localhost:11434/api/generate", {
+      model: "llama3",
+      prompt: kiddySearchSystemMessage(message),
       stream: false,
-      keep_alive: '1h',
+      keep_alive: "10m",
     });
 
     console.log(res.data);
@@ -41,21 +43,21 @@ export default class KiddyService {
 
   static async sendMessageToKiddyBot(
     messages: {
-      role: 'system' | 'user' | 'assistant';
+      role: "system" | "user" | "assistant";
       content: string;
     }[]
   ) {
     const body = {
-      model: 'kiddy',
+      model: "llama3",
       messages,
       // stream: false,
-      keep_alive: '1h',
+      keep_alive: "10m",
     };
 
-    const res = await fetch('http://localhost:11434/api/chat', {
-      method: 'post',
+    const res = await fetch("http://localhost:11434/api/chat", {
+      method: "post",
       body: JSON.stringify(body),
-      headers: { 'Content-Type': 'application/json' },
+      headers: { "Content-Type": "application/json" },
     });
 
     return res.body;
@@ -80,9 +82,9 @@ export default class KiddyService {
   static async searchYoutube(query: string) {
     const response = await this.youtubeSearch.search.list({
       q: query,
-      part: ['snippet'],
+      part: ["snippet"],
       maxResults: 3,
-      safeSearch: 'strict',
+      safeSearch: "strict",
     });
 
     const results = response!.data!.items!.map((item: any) => ({
@@ -97,13 +99,14 @@ export default class KiddyService {
   public static async sendMessage(
     chatId: string,
     message: string,
+    kidName: string,
     res: Response
   ) {
     // get the chat
     const chat = await ChatModel.findById(chatId);
 
     if (!chat) {
-      throw new APIError('Chat not found', StatusCodes.NOT_FOUND);
+      throw new APIError("Chat not found", StatusCodes.NOT_FOUND);
     }
 
     // send the message to search bot
@@ -114,8 +117,8 @@ export default class KiddyService {
       console.log(error);
       searchBotResults = {
         required: false,
-        website: '',
-        query: '',
+        website: "",
+        query: "",
       };
     }
 
@@ -133,7 +136,7 @@ export default class KiddyService {
     }
 
     // search for web results
-    if (searchBotResults.website === 'google') {
+    if (searchBotResults.website === "google") {
       try {
         searchBotResults.webResults = await this.searchGoogle(
           searchBotResults.query
@@ -141,13 +144,13 @@ export default class KiddyService {
       } catch (error) {
         console.log(error);
         throw new APIError(
-          'Error fetching google search results',
+          "Error fetching google search results",
           StatusCodes.INTERNAL_SERVER_ERROR
         );
       }
     }
 
-    if (searchBotResults.website === 'youtube') {
+    if (searchBotResults.website === "youtube") {
       try {
         searchBotResults.webResults = await this.searchYoutube(
           searchBotResults.query
@@ -155,7 +158,7 @@ export default class KiddyService {
       } catch (error) {
         console.log(error);
         throw new APIError(
-          'Error fetching YouTube search results',
+          "Error fetching YouTube search results",
           StatusCodes.INTERNAL_SERVER_ERROR
         );
       }
@@ -163,16 +166,16 @@ export default class KiddyService {
 
     // send message and web results to kiddy bot
     const newMessages: {
-      role: 'system' | 'user' | 'assistant';
+      role: "system" | "user" | "assistant";
       content: string;
     }[] = [];
 
     if (!searchBotResults.required) {
       newMessages.push({
-        role: 'user',
+        role: "user",
         content: message,
       });
-    } else if (searchBotResults.website === 'google') {
+    } else if (searchBotResults.website === "google") {
       let systemMessage = `Here are the search results for "${searchBotResults.query}" on Google:`;
 
       searchBotResults.webResults.forEach((result: any) => {
@@ -180,25 +183,25 @@ export default class KiddyService {
       });
 
       systemMessage +=
-        '\n\n Answer the question first on your own in a simply kid friendly way using story telling if needed and emojis without using the provided search results then provide the links to the kid explaining what each link is about.';
+        "\n\n Answer the question first on your own in a simply kid friendly way using story telling if needed and emojis without using the provided search results then provide the links to the kid explaining what each link is about.";
 
       systemMessage +=
-        '\n\n use these search results as a supporting material to help respond to the next user message. provide the kid with links from this search result saying that they can find more information here.';
+        "\n\n use these search results as a supporting material to help respond to the next user message. provide the kid with links from this search result saying that they can find more information here.";
 
       systemMessage +=
         "\n\n don't forget to ask the kid to view the provided results and come back with questions.";
 
-      systemMessage += '\n\n provide the website links in markdown format.';
+      systemMessage += "\n\n provide the website links in markdown format.";
       newMessages.push({
-        role: 'system',
+        role: "system",
         content: systemMessage,
       });
 
       newMessages.push({
-        role: 'user',
+        role: "user",
         content: message,
       });
-    } else if (searchBotResults.website === 'youtube') {
+    } else if (searchBotResults.website === "youtube") {
       let systemMessage = `Here are the search results for "${searchBotResults.query}" on YouTube:`;
 
       searchBotResults.webResults.forEach((result: any) => {
@@ -206,13 +209,13 @@ export default class KiddyService {
       });
 
       systemMessage +=
-        '\n\n use these search results to help respond to the next user message. provide the kid with links from this search result saying that these videos will help them understand the topic better.';
+        "\n\n use these search results to help respond to the next user message. provide the kid with links from this search result saying that these videos will help them understand the topic better.";
 
       systemMessage +=
         "\n\n don't forget to ask the kid to watch the videos and come back with questions.";
 
       systemMessage +=
-        '\n\n if the kid is not interested in the videos, you can ask them to search for more videos on the topic on YouTube.';
+        "\n\n if the kid is not interested in the videos, you can ask them to search for more videos on the topic on YouTube.";
 
       systemMessage +=
         "\n\n show the videos titles only don't show the description (only use the description to understand what this video is about) and show the links in markdown format.";
@@ -221,12 +224,12 @@ export default class KiddyService {
         "\n\n answer the kid's questions first on your own, provide information about the topic itself and then provide the videos as supporting material.";
 
       newMessages.push({
-        role: 'system',
+        role: "system",
         content: systemMessage,
       });
 
       newMessages.push({
-        role: 'user',
+        role: "user",
         content: message,
       });
     }
@@ -234,13 +237,14 @@ export default class KiddyService {
     console.log(newMessages);
 
     const kiddyBotResponse = await this.sendMessageToKiddyBot([
+      kiddyChatSystemMessage(kidName),
       ...chat.messages,
       ...newMessages,
     ] as any);
 
-    let fullResponse = '';
+    let fullResponse = "";
 
-    res.setHeader('Content-Type', 'application/json');
+    res.setHeader("Content-Type", "application/json");
     for await (const chunk of kiddyBotResponse!) {
       const data = chunk.toString();
 
@@ -260,7 +264,7 @@ export default class KiddyService {
     }
 
     chat.messages.push({
-      role: 'assistant',
+      role: "assistant",
       content: fullResponse,
     });
 
@@ -269,7 +273,7 @@ export default class KiddyService {
     } catch (error) {
       console.log(error);
       throw new APIError(
-        'Error saving chat',
+        "Error saving chat",
         StatusCodes.INTERNAL_SERVER_ERROR
       );
     }
@@ -279,12 +283,12 @@ export default class KiddyService {
     const chat = await ChatModel.findById(chatId);
 
     if (!chat) {
-      throw new APIError('Chat not found', StatusCodes.NOT_FOUND);
+      throw new APIError("Chat not found", StatusCodes.NOT_FOUND);
     }
 
     // remove system messages
     const messages = chat!.messages.filter(
-      (message) => message.role !== 'system'
+      (message) => message.role !== "system"
     );
 
     return messages;
