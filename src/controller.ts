@@ -1,5 +1,5 @@
-import { Request, Response } from 'express';
-import KiddyService from './service';
+import { Request, Response } from "express";
+import KiddyService from "./service";
 
 export default class KiddyController {
   public static async createNewChat(req: Request, res: Response) {
@@ -11,9 +11,9 @@ export default class KiddyController {
   }
 
   public static async sendMessage(req: Request, res: Response) {
-    const { chatId, message } = req.body;
+    const { chatId, message, kidName } = req.body;
 
-    await KiddyService.sendMessage(chatId, message, res);
+    await KiddyService.sendMessage(chatId, message, kidName, res);
   }
 
   public static async getChat(req: Request, res: Response) {
